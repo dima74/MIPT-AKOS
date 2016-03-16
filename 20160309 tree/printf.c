@@ -51,7 +51,7 @@ void printf_(const char *s, ...)
 					puts_(va_arg(args, char*));
 					break;
 				case 'f':;
-					
+					// TODO
 					break;
 				default:
 					--i;

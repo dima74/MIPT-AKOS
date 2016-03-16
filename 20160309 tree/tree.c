@@ -57,7 +57,7 @@ void tree(char *path, int spaces)
 
 int main()
 {
-	tree("/home/dima/akos", 0);
+	tree("/home", 0);
 	printf("%d\n", number);
 	return 0;
 }
