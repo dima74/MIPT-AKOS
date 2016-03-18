@@ -28,23 +28,20 @@ Save()
 	./extract-links.sh "$host" <"$file" >links
 
 	# считаем число ссылок из этого файла (уникальные/все)
-	cat links | \
-	{ 
-		real=0
-		all=0
-		while read line
-		do
-			file="site"$line
-			case $file in
-			     */) file=$file"index";;
-			esac
-			if [ ! -s "$file" ]; then
-				real=$((real+1))
-			fi
-			all=$((all+1))
-		done
-		printf "%3d/%3d %s\n" $real $all $1
-	}
+	real=0
+	all=0
+	while read line
+	do
+		file="site"$line
+		case $file in
+		     */) file=$file"index";;
+		esac
+		if [ ! -s "$file" ]; then
+			real=$((real+1))
+		fi
+		all=$((all+1))
+	done < links
+	printf "%3d/%3d %s\n" $real $all $1
 
 	cat links | while read line
 	do
