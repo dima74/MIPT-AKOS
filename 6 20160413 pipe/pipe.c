@@ -39,9 +39,6 @@ int extract_argv(const char *s, char *argv[])
 	return argc;
 }
 
-/*
-cat <1.txt | sort | sort | grep 1 | wc >2.txt
-*/
 int extract_redirect(char *argv[], int argc, char in[], char out[], char err[])
 {
 	for (int i = 0; i < argc; ++i)
