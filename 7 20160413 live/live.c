@@ -8,6 +8,11 @@
 #include <pthread.h>
 #include <semaphore.h>
 
+#include <ncurses.h>
+#include <locale.h>
+
+int ncurses;
+
 // В пустой (мёртвой) клетке, рядом с которой ровно три живые клетки, зарождается жизнь;
 // Если у живой клетки есть две или три живые соседки, то эта клетка продолжает жить;
 // D противном случае (если соседей меньше двух или больше трёх) клетка умирает («от одиночества» или «от перенаселённости»)
@@ -56,45 +61,38 @@ bool **generate_field(int h, int w)
 	return field;
 }
 
-int number_threads = 4;
-int number_steps = 10;
+int number_threads;
+int number_steps;
 int h;
 int w;
 bool **curr;
 bool **next;
 
-pthread_mutex_t mutex_current = PTHREAD_MUTEX_INITIALIZER;
-
-sem_t sem;
-int my_getsem_value(sem_t *sem)
+bool help = 1;
+void show_field(int step, bool **field, int h, int w)
 {
-	int sem_val;
-	sem_getvalue(sem, &sem_val);
-	return sem_val;
+	static chtype c0 = ' ' | COLOR_PAIR(1);
+	static chtype c1 = ' ' | COLOR_PAIR(2);
+	clear();
+	move(0, 0);
+	if (help)
+	{
+		printw("Нажмите любую клавишу для перехода к следующему поколению\n");
+		help = 0;
+	}
+	else
+		printw("Шаг %d:\n", step);
+	for (int i = 0; i < h; ++i)
+	{
+		for (int j = 0; j < w; ++j)
+			addch(field[i][j] ? c1 : c0);
+		printw("\n");
+	}
+	refresh();
 }
 
-
-int number_done;
-pthread_mutex_t mutex_number_done = PTHREAD_MUTEX_INITIALIZER;
-
-int current_step;
-pthread_mutex_t mutex_current_step = PTHREAD_MUTEX_INITIALIZER;
-
-void increment_current_step()
-{
-	pthread_mutex_lock(&mutex_current_step);
-	++current_step;
-	pthread_mutex_unlock(&mutex_current_step);
-}
-
-int get_current_step()
-{
-	int ret;
-	pthread_mutex_lock(&mutex_current_step);
-	ret = current_step;
-	pthread_mutex_unlock(&mutex_current_step);
-	return ret;
-}
+sem_t sem_managing;
+sem_t *sem_threads;
 
 static void *thread_start(void *arg)
 {
@@ -103,103 +101,203 @@ static void *thread_start(void *arg)
 	int j0 = 0;
 	int i1 = i0 + h / number_threads - 1;
 	int j1 = w - 1;
-	//printf("%d (%2d %2d  %2d %2d)\n", id, i0, j0, i1, j1);
 	
 	for (int i = 0; i < number_steps; ++i)
 	{
-		//printf("%d %d %d\n", id, i, current_step);
 		step(curr, next, h, w, i0, j0, i1, j1);
-		printf("%d lock done\n", id);
-		pthread_mutex_lock(&mutex_number_done);
-		printf("%d get done\n", id);
-		++number_done;
-		if (number_done == number_threads)
-		{
-			printf("%d lock current\n", id);
-			pthread_mutex_lock(&mutex_current);
-			printf("%d get current\n", id);
-			// swap(curr, next);
-			bool **temp = curr;
-			curr = next;
-			next = curr;
-			increment_current_step();
-			pthread_mutex_unlock(&mutex_current);
-			
-			printf("\n");
-			printf("Шаг %d\n", get_current_step());
-			for (int id = 1; id < number_threads; ++id)
-				sem_post(&sem);
-			number_done = 0;
-			pthread_mutex_unlock(&mutex_number_done);
-		}
-		else
-		{
-			pthread_mutex_unlock(&mutex_number_done);
-			
-			printf("%d lock sem  (%d)\n", id, my_getsem_value(&sem));
-			sem_wait(&sem);
-			printf("%d get sem  (%d)\n", id, my_getsem_value(&sem));
-		}
+		sem_post(&sem_managing);
+		sem_wait(&sem_threads[id]);
 	}
 	return NULL;
 }
 
-void clear_screen()
+typedef void (*func) ();
+long measure(func f)
 {
-	for (int i = 0; i < 25; ++i)
-		printf("\n");
+	struct timespec tps, tpe;
+	clock_gettime(CLOCK_REALTIME, &tps);
+	f();
+	clock_gettime(CLOCK_REALTIME, &tpe);
+	return (tpe.tv_sec - tps.tv_sec) * 1000000000 + (tpe.tv_nsec - tps.tv_nsec);
 }
 
-void show_field(bool **field, int h, int w)
+void run_live()
 {
-	clear_screen();
-	printf("Шаг %d:\n", get_current_step());
-	for (int i = 0; i < h; ++i)
+	next = malloc_field(h, w);
+	
+	if (ncurses)
 	{
+		initscr();
+		keypad(stdscr, TRUE);
+		start_color();
+		init_pair(1, COLOR_BLACK, COLOR_RED);
+		init_pair(2, COLOR_BLACK, COLOR_GREEN);
+		show_field(0, curr, h, w);
+	}
+	
+	sem_init(&sem_managing, 0, 0);
+	sem_threads = malloc(number_threads * sizeof(sem_t));
+	for (size_t i = 0; i < number_threads; ++i)
+		sem_init(&sem_threads[i], 0, 0);
+	
+	pthread_t *ids = malloc(number_threads * sizeof(pthread_t));
+	for (size_t i = 0; i < number_threads; ++i)
+		pthread_create(&ids[i], NULL, &thread_start, (void*) i);
+	
+	for (int step = 0; step < number_steps; ++step)
+	{
+		for (int number_done = 0; number_done < number_threads; ++number_done)
+			sem_wait(&sem_managing);
+		// swap(curr, next);
+		bool **temp = curr;
+		curr = next;
+		next = temp;
+		
+		for (int i = 0; i < number_threads; ++i)
+			sem_post(&sem_threads[i]);
+		
+		if (ncurses)
+		{
+			getch();
+			show_field(step + 1, curr, h, w);
+		}
+	}
+	
+	for (size_t i = 0; i < number_threads; ++i)
+		pthread_join(ids[i], NULL);
+	free(ids);
+	
+	sem_destroy(&sem_managing);
+	for (size_t i = 0; i < number_threads; ++i)
+		sem_destroy(&sem_threads[i]);
+	free(sem_threads);
+	
+	free_field(next, h, w);
+	if (ncurses)
+		endwin();
+}
+
+void one_thread()
+{
+	next = malloc_field(h, w);
+	for (int i = 0; i < number_steps; ++i)
+	{
+		step(curr, next, h, w, 0, 0, h - 1, w - 1);
+		// swap(curr, next);
+		bool **temp = curr;
+		curr = next;
+		next = temp;
+	}
+	free_field(next, h, w);
+}
+
+long measure_live(int h_, int w_, int number_threads_, int number_steps_, bool generate)
+{
+	number_threads = number_threads_;
+	number_steps = number_steps_;
+	h = h_;
+	w = w_;
+	if (generate)
+		curr = generate_field(h, w);
+	return measure(number_threads == 1 ? one_thread : run_live);
+}
+
+long generate_and_measure(int h_, int w_, int number_threads_, int number_steps_)
+{
+	long time = measure_live(h_, w_, number_threads_, number_steps_, 1);
+	free_field(curr, h, w);
+	return time;
+}
+
+void warmup()
+{
+	printf("warmup...\n");
+	generate_and_measure(1e3, 1e3, 1, 10);
+	generate_and_measure(1e3, 1e3, 4, 10);
+	generate_and_measure(1e3, 1e3, 2, 10);
+	for (int number_threads = 1; number_threads <= 8; ++number_threads)
+		generate_and_measure(1e3, 1e3, number_threads, 10);
+	for (int number_threads = 1; number_threads <= 8; ++number_threads)
+		generate_and_measure(1e3, 1e3, 9 - number_threads, 10);
+	printf("warmup done\n");
+}
+
+void copy_field(bool **to, bool **from, int h, int w)
+{
+	for (int i = 0; i < h; ++i)
 		for (int j = 0; j < w; ++j)
-			printf("%d ", field[i][j]);
+			to[i][j] = from[i][j];
+}
+
+void test()
+{
+	ncurses = 0;
+	warmup();
+	
+	int h = 1000;
+	int w = 1000;
+	int steps_min = 10;
+	int steps_max = 10;
+	int steps_delta = 50;
+	bool **initial = generate_field(h, w);
+	curr = malloc_field(h, w);
+	printf("Поле %dx%d\n", h, w);
+	
+	printf("Число операций:  ");
+	for (int steps_ = steps_min; steps_ <= steps_max; steps_ += steps_delta)
+		printf("  %4d", steps_);
+	printf("\n");
+	
+	for (int number_threads = 1; number_threads <= 8; ++number_threads)
+	{
+		copy_field(curr, initial, h, w);
+		printf("%d:                ", number_threads);
+		for (int steps_ = steps_min; steps_ <= steps_max; steps_ += steps_delta)
+		{
+			printf("  %.2f", measure_live(h, w, number_threads, steps_, 0) / 1e9);
+			fflush(stdout);
+		}
 		printf("\n");
 	}
+	printf("\n");
+	free_field(curr, h, w);
+	free_field(initial, h, w);
+}
+
+void visual()
+{
+	ncurses = 1;
+	generate_and_measure(20, 40, 4, 1e7);
 }
 
 int main()
 {
 	srand(time(0));
-	h = 20;
-	w = 20;
-	curr = generate_field(h, w);
-	next = malloc_field(h, w);
-	show_field(curr, h, w);
+	setlocale(LC_ALL, "");
 	
-	sem_init(&sem, 0, 0);
-	pthread_mutex_init(&mutex_number_done, NULL);
-	
-	pthread_t id; //unused
-	for (size_t i = 0; i < number_threads; ++i)
-		pthread_create(&id, NULL, &thread_start, (void*) i);
-	
-	char s[80];
-	while (1)
+	int action = 0;
+	if (!action)
 	{
-		gets(s);
-		if (strcmp(s, "exit") == 0 || strcmp(s, "e") == 0)
+		printf("Выберете действие:\n");
+		printf("[1] запустить визуализатор\n");
+		printf("[2] запустить измерение времени\n");
+		printf("[3] выход\n");
+		scanf("%d", &action);
+	}
+	switch (action)
+	{
+		case 1:
+			visual();
 			break;
-		if (strcmp(s, "show") == 0 || strcmp(s, "s") == 0)
-		{
-			bool **copy = malloc_field(h, w);
-			pthread_mutex_lock(&mutex_current);
-			for (int i = 0; i < h; ++i)
-				for (int j = 0; j < w; ++j)
-					copy[i][j] = curr[i][j];
-			pthread_mutex_unlock(&mutex_current);
-			
-			show_field(copy, h, w);
-			free_field(copy, h, w);
-		}
+		case 2:
+			test();
+			break;
+		case 3:
+			exit(0);
+		default:
+			printf("Такого действия нет!\n");
+			exit(0);
 	}
 	
-	free_field(curr, h, w);
-	free_field(next, h, w);
-	sem_destroy(&sem);
 	return 0;
 }
