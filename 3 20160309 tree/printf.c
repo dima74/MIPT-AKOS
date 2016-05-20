@@ -64,8 +64,23 @@ void printf_(const char *s, ...)
 	va_end(args);
 }
 
+void printf2(const char *s, ...)
+{
+	va_list args;
+	va_start(args, s);
+	printf("%d\n", va_arg(args, int));
+	//printf("%f\n", va_arg(args, double));
+	va_arg(args, int);
+	printf("%d\n", va_arg(args, int));
+	printf("%d\n", va_arg(args, int));
+	printf("%d\n", va_arg(args, int));
+	va_end(args);
+}
+
+#include <stdint.h>
 int main()
 {
-	printf_("%d %s %c%c%c! \n", 123, "456", '7', '8', '9');
+	printf("%zu\n", sizeof(double));
+	printf2("%d %q %d %d %d %d", 77, 1234.5789, 1, 2, 3, 4);
 	return 0;
 }

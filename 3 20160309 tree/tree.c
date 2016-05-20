@@ -29,9 +29,6 @@ bool isSymlink(const char *path)
 int number;
 void tree(char *path, int spaces)
 {
-	int len = strlen(path);
-	if (len > 1 && path[len - 1] == '/')
-		path[len - 1] = 0;
 	if (!isDirectory(path) || isSymlink(path))
 		return;
 	
@@ -45,11 +42,10 @@ void tree(char *path, int spaces)
 	while ((entry = readdir(dir)) != NULL)
 		if (entry->d_name[0] != '.')
 		{
-			char full_path[256];
+			char full_path[strlen(path) + strlen(entry->d_name) + 2];
 			strcpy(full_path, path);
-			if (len > 1)
-				strcat(full_path, "/");
 			strcat(full_path, entry->d_name);
+			strcat(full_path, "/");
 			tree(full_path, spaces + 2);
 		}
 	closedir(dir);
@@ -57,7 +53,7 @@ void tree(char *path, int spaces)
 
 int main()
 {
-	tree("/home", 0);
+	tree("/", 0);
 	printf("%d\n", number);
 	return 0;
 }

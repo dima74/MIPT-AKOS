@@ -13,7 +13,7 @@ void check(int rc, const char *message)
 {
 	if (rc == -1)
 	{
-		printf("%s: %s\n", message, strerror(errno));
+		perror(message);
 		exit(1);
 	}
 }

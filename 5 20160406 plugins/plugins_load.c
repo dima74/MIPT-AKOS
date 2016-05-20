@@ -18,7 +18,7 @@ int main()
 		{
 			char path[256] = "plugins/";
 			strcat(path, entry->d_name);
-			void *handle = dlopen(path, RTLD_LAZY);
+			void *handle = dlopen(path, RTLD_NOW);
 			handles[number++] = handle;
 		}
 	closedir(dir);
