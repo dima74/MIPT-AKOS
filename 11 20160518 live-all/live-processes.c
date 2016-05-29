@@ -2,6 +2,7 @@
 
 #include "live-threads-processors-common.h"
 #include "test.h"
+#include "main-default.h"
 
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -47,11 +48,4 @@ void run_workers(struct thread_info *infos, int number_threads)
 		waitpid(pids[i], NULL, 0);
 	}
 	free(pids);
-}
-
-int main()
-{
-	//complex_test();
-	test(2, 1, 1);
-	//run_on_seed(8, 8, 100, 8, 0);
 }

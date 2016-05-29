@@ -6,15 +6,17 @@
 #include <stdbool.h>
 
 bool debug = 0;
+bool netdebug = 0;
 #define check(expr)			\
 {							\
-	if (expr == -1)			\
+	if ((expr) == -1)		\
 	{						\
 		perror(#expr);		\
 		exit(1);			\
 	}						\
 }
 
+typedef void (*func_generator) (bool **, int, int);
 struct worker_info
 {
 	int id;
@@ -31,7 +33,8 @@ void print_field(bool **field, int h, int w)
 {
 	for (int i = 0; i < h; ++i)
 	{
-		printf("%p: ", field[i]);
+		//printf("%p: ", field[i]);
+		printf("\t");
 		for (int j = 0; j < w; ++j)
 			printf("%d", field[i][j]);
 		printf("\n");

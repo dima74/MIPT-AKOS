@@ -19,7 +19,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-void send_and_recv(bool *toup, bool *todown, bool *fromup, bool *fromdown, struct worker_info *info);
+void send_and_recv(bool *prevtoup, bool *prevtodown, bool *toup, bool *todown, bool *fromup, bool *fromdown, struct worker_info *info, int step);
 
 // В пустой (мёртвой) клетке, рядом с которой ровно три живые клетки, зарождается жизнь;
 // Если у живой клетки есть две или три живые соседки, то эта клетка продолжает жить;
@@ -62,8 +62,10 @@ void set_left_and_right_columns(bool **field, int h, int w)
 	}
 }
 
-void update_bounds(bool **curr, bool **next, struct worker_info *info)
+void update_bounds(bool **curr, bool **next, struct worker_info *info, int step)
 {
+	//if (step == info->number_steps - 1)
+	//	return;
 	int parth = info->i1 - info->i0;
 	int partw = info->w;
 	if (info->number_threads == 1)
@@ -74,11 +76,13 @@ void update_bounds(bool **curr, bool **next, struct worker_info *info)
 		}
 	else
 	{
+		bool *prevtoup = curr[1] + 1;
+		bool *prevtodown = curr[parth] + 1;
 		bool *toup = next[1] + 1;
 		bool *todown = next[parth] + 1;
 		bool *fromup = next[0] + 1;
 		bool *fromdown = next[parth + 1] + 1;
-		send_and_recv(toup, todown, fromup, fromdown, info);
+		send_and_recv(prevtoup, prevtodown, toup, todown, fromup, fromdown, info, step);
 	}
 	set_left_and_right_columns(next, parth, partw);
 }
@@ -101,7 +105,7 @@ void print(struct worker_info *info, bool **field)
 
 void worker(struct worker_info *info)
 {
-	usleep(info->id * 1e3);
+	//usleep(info->id * 1e3);
 	int parth = info->i1 - info->i0;
 	int partw = info->w;
 	
@@ -119,7 +123,7 @@ void worker(struct worker_info *info)
 		for (int i = 1; i <= parth; ++i)
 			for (int j = 1; j <= partw; ++j)
 				next[i][j] = getNextState(curr, i, j);
-		update_bounds(curr, next, info);
+		update_bounds(curr, next, info, step);
 		// swap(curr, next);
 		bool **temp = curr;
 		curr = next;
@@ -131,8 +135,8 @@ void worker(struct worker_info *info)
 	for (int i = 1; i <= parth; ++i)
 		for (int j = 1; j <= partw; ++j)
 			info->field[i][j - 1] = curr[i][j];
-	free_field(curr, parth, partw);
-	free_field(next, parth, partw);
+	free_field(curr, parth + 2, partw + 2);
+	free_field(next, parth + 2, partw + 2);
 }
 
 struct worker_info *create_infos(bool **field, int h, int w, int number_steps, int number_threads)

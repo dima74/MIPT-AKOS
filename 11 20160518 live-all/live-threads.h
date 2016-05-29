@@ -1,6 +1,5 @@
 #define pshared 0
 
-#include "base.h"
 #include "live-threads-processors-common.h"
 
 void *my_malloc(size_t size)

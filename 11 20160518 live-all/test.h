@@ -1,6 +1,9 @@
-#include "base.h"
+#ifndef TEST_H
+#define TEST_H
+
 #include "abstract.h"
-#include "live-threads-processors-common.h"
+
+bool **run_with_generator(int h, int w, int number_steps, int number_threads, func_generator generator);
 
 int seed_for_generator;
 void generator_create_from_seed(bool **field, int h, int w)
@@ -74,6 +77,7 @@ bool **simple_live_with_generator(int h, int w, int number_steps, func_generator
 		curr = next;
 		next = temp;
 	}
+	free_field(next, h, w);
 	return curr;
 }
 
@@ -89,6 +93,14 @@ bool **simple_live_on_seed(int h, int w, int number_steps, int seed)
 	return simple_live_with_generator(h, w, number_steps, generator_create_from_seed);
 }
 
+bool **generate_field(int h, int w, int seed)
+{
+	bool **field = malloc_field(h, w);
+	seed_for_generator = seed;
+	generator_create_from_seed(field, h, w);
+	return field;
+}
+
 void test(int h, int w, int number_steps)
 {
 	int seed = time(0);
@@ -96,10 +108,7 @@ void test(int h, int w, int number_steps)
 	if (max_number_threads > h)
 		max_number_threads = h;
 	
-	bool **field = malloc_field(h, w);
-	seed_for_generator = seed;
-	generator_create_from_seed(field, h, w);
-	
+	bool **field = generate_field(h, w, seed);
 	if (0)
 	{
 		field[0][0] = 1;
@@ -120,23 +129,30 @@ void test(int h, int w, int number_steps)
 	
 	for (int number_threads = 1; number_threads <= max_number_threads; ++number_threads)
 		assert(is_field_equals(fields[0], fields[number_threads], h, w));
+	
+	free_field(field, h, w);
+	for (int number_threads = 0; number_threads <= max_number_threads; ++number_threads)
+		free_field(fields[number_threads], h, w);
 }
 
 void complex_test()
 {
 	srand(time(0));
 	test(2, 1, 1);
+	//return;
 	test(8, 1, 10);
-	test(8, 1000, 1);
-	test(8, 100, 10);
-	return;
+	test(16, 1000, 100);
+	test(16, 100, 1000);
+	//return;
 	
-	int number = 100;
+	int number = 10;
 	while (number--)
 	{
 		int h = 9 + rand() % 10;
-		int w = 1 + rand() % 1000;
+		int w = 1 + rand() % 100;
 		int number_operations = 1 + rand() % 1000;
 		test(h, w, number_operations);
 	}
 }
+
+#endif
