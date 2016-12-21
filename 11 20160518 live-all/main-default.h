@@ -1,6 +1,7 @@
-#include "test.h"
+#include "time.h"
 
 int main()
 {
-	complex_test();
+	//complex_test();
+	measure();
 }

@@ -89,7 +89,6 @@ void update_bounds(bool **curr, bool **next, struct worker_info *info, int step)
 
 void print(struct worker_info *info, bool **field)
 {
-	usleep(info->id * 1e5);
 	int parth = info->i1 - info->i0;
 	int partw = info->w;
 	printf("id %d:\n", info->id);
@@ -105,7 +104,6 @@ void print(struct worker_info *info, bool **field)
 
 void worker(struct worker_info *info)
 {
-	//usleep(info->id * 1e3);
 	int parth = info->i1 - info->i0;
 	int partw = info->w;
 	

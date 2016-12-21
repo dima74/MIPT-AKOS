@@ -1,5 +1,5 @@
 #include "abstract.h"
-//#include "main-default.h"
+#include "main-default.h"
 #include "test.h"
 #include "live-udp-base.h"
 
@@ -37,9 +37,10 @@ bool func_filter_by_type_and_additional_data(enum PacketType type, uint8_t *addi
 {
 	if (check_for_initial_ack(type))
 		return true;
-	int step = *additional_data;
+	int step;
+	memcpy(&step, additional_data, sizeof(int));
 	if (step != step_)
-		printf("!!! %d want %d get %d from %d\n", sockfd_id, step_, step, debug_id_from);
+		if (debug) printf("!!! %d want %d get %d from %d\n", sockfd_id, step_, step, debug_id_from);
 	return step != step_;
 }
 
@@ -50,9 +51,36 @@ bool *todown_;
 struct worker_info *info_;
 void func_when_timeout()
 {
-	printf("%d want %d timeout\n", sockfd_id, step_);
+	if (debug) printf("%d want %d timeout\n", sockfd_id, step_);
 	sendlines(step_, info_, toup_, todown_);
 	sendlines(step_ - 1, info_, prevtoup_, prevtodown_);
+}
+//==========================================
+
+
+//==========================================
+int left_recv_[2];
+bool is_worker_finish_[2];
+void init_func_check_break_recv(struct worker_info *info)
+{
+	left_recv_[0] = left_recv_[1] = info->w;
+	is_worker_finish_[0] = is_worker_finish_[1] = 0;
+}
+
+void func_count_number_recv_grids(int i0, int j0, int number_grids, int is_first_time)
+{
+	if (is_first_time)
+		left_recv_[i0] -= number_grids;
+}
+
+bool func_check_break_recv(enum PacketType type)
+{
+	is_worker_finish_[0] |= type == UP_WORKER_DONE;
+	is_worker_finish_[1] |= type == DOWN_WORKER_DONE;
+	if (is_worker_finish_[0] || is_worker_finish_[1])
+		if (debug) printf("%d recv %s_WORKER_DONE (now %s done)\n", sockfd_id, type == UP_WORKER_DONE ? "UP" : "DOWN", is_worker_finish_[0] && is_worker_finish_[1] ? "both" : type == UP_WORKER_DONE ? "up" : "down");
+	return (is_worker_finish_[0] || left_recv_[0] == 0) 
+	    && (is_worker_finish_[1] || left_recv_[1] == 0);
 }
 //==========================================
 
@@ -67,7 +95,8 @@ void send_and_recv(bool *prevtoup, bool *prevtodown, bool *toup, bool *todown, b
 	toup_ = toup;
 	todown_ = todown;
 	info_ = info;
-	myrecvfrom_field(PART_OF_LINE, field, 2, info->w, sizeof(int), NULL, func_filter_by_type_and_additional_data, func_when_timeout);
+	init_func_check_break_recv(info);
+	myrecvfrom_field(PART_OF_LINE, field, 2, info->w, sizeof(int), func_count_number_recv_grids, func_filter_by_type_and_additional_data, func_when_timeout, func_check_break_recv);
 	if (debug) printf("%d %d myrecvfrom_field done\n", info->id, step);
 	
 	//print_field_named(info->id, "sendlines", field, 2, info->w);
@@ -101,13 +130,12 @@ void run_worker(int port)
 	int partw = info.w;
 	info.field = malloc_field(parth + 2, partw);
 	if (debug) printf("%d recvfield\n", id);
-	myrecvfrom_field(PART_OF_INITIAL_FIELD, info.field, parth + 2, partw, 0, NULL, NULL, NULL);
+	myrecvfrom_field(PART_OF_INITIAL_FIELD, info.field, parth + 2, partw, 0, NULL, NULL, NULL, NULL);
 	if (debug) printf("%d recvfield done\n", id);
 	
 	//print_field(info.field, parth + 2, partw);
 	//print_field_named(info.id, "field0", info.field, parth + 2, partw);
 	
-	usleep(info.id * 1e5);
 	mysendto_ack(-1, ACK_FOR_INITIAL_DATA);
 	
 	worker(&info);
@@ -120,8 +148,8 @@ void run_worker(int port)
 		
 		uint8_t data[MAX_PACKET_SIZE];
 		int len;
-		int id = myrecvfrom_withtimeout(data, &len, 500);
-		if (check_for_initial_ack(*data) || (id >= 0 && *data == PART_OF_LINE))
+		int id = myrecvfrom_withtimeout(data, &len, DEFAULT_TIMEOUT);
+		if ((id == -1 && check_for_initial_ack(*data)) || (id >= 0 && *data == PART_OF_LINE))
 			continue;
 		if (id == -1)
 			break;
@@ -130,7 +158,7 @@ void run_worker(int port)
 	
 	free_field(info.field, parth + 2, partw);
 	close(sockfd);
-	printf("%d EXIT\n", id);
+	if (debug) printf("%d EXIT\n", id);
 }
 
 void send_initial_data(struct worker_info *infos, int number_threads, bool recv_ack[])
@@ -166,6 +194,26 @@ void init_func_try_send_ack(struct worker_info *infos, int number_threads)
 		int partw = infos_[id].w;
 		left_recv_grids[id] = parth * partw;
 	}
+}
+
+void send_notice_that_neighbour_done(int id, bool updone)
+{
+	mysendto_ack(id, updone ? DOWN_WORKER_DONE : UP_WORKER_DONE);
+	if (debug) printf("  send notice to %d (%s)\n", id, updone ? "up done" : "down done");
+}
+
+void func_try_send_notice_that_neighbour_done()
+{
+	for (int id = 0; id < number_threads_; ++id)
+		if (left_recv_grids[id] == 0)
+		{
+			int idup = (id + 1) % number_threads_;
+			int iddown = (number_threads_ + id - 1) % number_threads_;
+			if (left_recv_grids[idup] > 0)
+				send_notice_that_neighbour_done(idup, false);
+			if (left_recv_grids[iddown] > 0)
+				send_notice_that_neighbour_done(iddown, true);
+		}
 }
 
 void func_try_send_ack(int i0, int j0, int number_grids, int is_first_time)
@@ -252,7 +300,7 @@ bool **run_with_generator(int h, int w, int number_steps, int number_threads, fu
 	
 	if (debug) printf("  recvresult\n");
 	init_func_try_send_ack(infos, number_threads);
-	myrecvfrom_field(PART_OF_RESULTING_FIELD, field, h, w, 0, func_try_send_ack, NULL, NULL);
+	myrecvfrom_field(PART_OF_RESULTING_FIELD, field, h, w, 0, func_try_send_ack, NULL, func_try_send_notice_that_neighbour_done, NULL);
 	if (debug) printf("  recvresult done\n");
 	
 	if (debug) printf("  waitpid\n");
@@ -278,9 +326,11 @@ bool **run_with_generator(int h, int w, int number_steps, int number_threads, fu
 	return field;
 }
 
-int main()
+int main2()
 {
 	//for (int seed = 0; seed < 10; ++seed)
-	run_on_seed(10, 10, 5, 3, 0);
+	//run_on_seed(10, 10, 3, 2, 0);
+	complex_test();
 	printf("  EXIT\n");
+	return 0;
 }

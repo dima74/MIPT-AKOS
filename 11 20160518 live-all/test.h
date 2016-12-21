@@ -103,47 +103,41 @@ bool **generate_field(int h, int w, int seed)
 
 void test(int h, int w, int number_steps)
 {
-	int seed = time(0);
-	int max_number_threads = 2;
+	printf("test %dx%d on %d steps\n", h, w, number_steps);
+	int seed = rand();
+	int max_number_threads = 8;
 	if (max_number_threads > h)
 		max_number_threads = h;
 	
-	bool **field = generate_field(h, w, seed);
-	if (0)
-	{
-		field[0][0] = 1;
-		field[0][1] = 0;
-		field[1][0] = 0;
-		field[1][1] = 0;
-	}
-	
-	bool **fields[max_number_threads + 1];
-	fields[0] = simple_live_on_field(h, w, number_steps, field);
+	bool **begin_field = generate_field(h, w, seed);
+	bool **end_fields[max_number_threads + 1];
+	end_fields[0] = simple_live_on_field(h, w, number_steps, begin_field);
 	for (int number_threads = 1; number_threads <= max_number_threads; ++number_threads)
-		fields[number_threads] = run_on_field(h, w, number_steps, number_threads, field);
+	{
+		printf("\trun on %d threads\n", number_threads);
+		end_fields[number_threads] = run_on_field(h, w, number_steps, number_threads, begin_field);
+	}
 	
 	//if (0)
 	if (debug)
 	for (int number_threads = 0; number_threads <= max_number_threads; ++number_threads)
-		print_field(fields[number_threads], h, w);
+		print_field(end_fields[number_threads], h, w);
 	
 	for (int number_threads = 1; number_threads <= max_number_threads; ++number_threads)
-		assert(is_field_equals(fields[0], fields[number_threads], h, w));
+		assert(is_field_equals(end_fields[0], end_fields[number_threads], h, w));
 	
-	free_field(field, h, w);
+	free_field(begin_field, h, w);
 	for (int number_threads = 0; number_threads <= max_number_threads; ++number_threads)
-		free_field(fields[number_threads], h, w);
+		free_field(end_fields[number_threads], h, w);
 }
 
 void complex_test()
 {
 	srand(time(0));
 	test(2, 1, 1);
-	//return;
 	test(8, 1, 10);
-	test(16, 1000, 100);
-	test(16, 100, 1000);
-	//return;
+	test(10, 10000, 10);
+	test(10, 100, 1000);
 	
 	int number = 10;
 	while (number--)

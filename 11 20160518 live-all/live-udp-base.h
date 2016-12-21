@@ -5,6 +5,7 @@
 #define MAIN_PORT 7090
 #define START_PORT (MAIN_PORT + 1)
 #define MAX_PACKET_SIZE 500
+#define DEFAULT_TIMEOUT 1
 
 enum PacketType
 {
@@ -12,7 +13,8 @@ enum PacketType
 	PART_OF_INITIAL_FIELD,
 	ACK_FOR_INITIAL_DATA,
 	PART_OF_LINE,
-	ACK_CLIENT_DONE,
+	UP_WORKER_DONE,
+	DOWN_WORKER_DONE,
 	PART_OF_RESULTING_FIELD,
 	ACK_FOR_RESULTING_FIELD
 };
@@ -46,6 +48,8 @@ void create_socket(int port)
 
 void mysendto(int id, uint8_t *data, int size)
 {
+	//usleep(rand() % 1000 * 10);
+	
 	assert(size <= MAX_PACKET_SIZE);
 	int port = START_PORT + id;
 	struct sockaddr_in addr_to = get_sockaddr(port);
@@ -65,24 +69,17 @@ void mysendto(int id, uint8_t *data, int size)
 	if (netdebug) printf("%25d mysendto %d done\n", sockfd_id, id);
 }
 
-long getmtime()
+int myrecvfrom_withtimeout(uint8_t *data, int *len, int microseconds)
 {
-	struct timespec tp;
-	clock_gettime(CLOCK_REALTIME, &tp);
-	return tp.tv_sec * 1000 + tp.tv_nsec / 1000000;
-}
-
-int myrecvfrom_withtimeout(uint8_t *data, int *len, int milliseconds)
-{
-	if (milliseconds != 0)
+	if (microseconds != 0)
 	{
 		fd_set readfds;
 		FD_ZERO(&readfds);
 		FD_SET(sockfd, &readfds);
 		
 		struct timeval timeout;
-		timeout.tv_sec = milliseconds / 1000;
-		timeout.tv_usec = milliseconds % 1000 * 1000;
+		timeout.tv_sec = microseconds / 1000000;
+		timeout.tv_usec = microseconds;
 		//printf("%d %ld select %d %d\n", sockfd_id, getmtime(), (int) timeout.tv_sec, (int) timeout.tv_usec);
 		int rc = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
 		//printf("%d %ld select done %d\n", sockfd_id, getmtime(), rc);
@@ -198,7 +195,8 @@ void mysendto_field(int id, uint8_t *additional_data, int additional_size, enum 
 typedef void (*Func_try_send_ack) (int i0, int j0, int number_grids, int is_first_time);
 typedef bool (*Func_filter_by_type_and_additional_data) (enum PacketType type, uint8_t *additional_data, int debug_id_from);
 typedef void (*Func_when_timeout) ();
-void myrecvfrom_field(enum PacketType type, bool **field, int h, int w, int additional_size, Func_try_send_ack func_try_send_ack, Func_filter_by_type_and_additional_data func_filter_by_type_and_additional_data, Func_when_timeout func_when_timeout)
+typedef bool (*Func_check_break_recv) (enum PacketType type);
+void myrecvfrom_field(enum PacketType type, bool **field, int h, int w, int additional_size, Func_try_send_ack func_try_send_ack, Func_filter_by_type_and_additional_data func_filter_by_type_and_additional_data, Func_when_timeout func_when_timeout, Func_check_break_recv func_check_break_recv)
 {
 	int header_size = 1 + 3 * sizeof(int) + additional_size;
 	int recv_grids = 0;
@@ -210,12 +208,15 @@ void myrecvfrom_field(enum PacketType type, bool **field, int h, int w, int addi
 	{
 		uint8_t data[MAX_PACKET_SIZE];
 		int len;
-		int id = myrecvfrom_withtimeout(data, &len, func_when_timeout == NULL ? 0 : 1000);
+		int id = myrecvfrom_withtimeout(data, &len, func_when_timeout == NULL ? 0 : DEFAULT_TIMEOUT);
+		if (debug) printf("\t%d myrecvfrom_field part from %d (%d/%d)\n", sockfd_id, id, recv_grids, h * w);
 		if (id == -2)
 		{
 			func_when_timeout();
 			continue;
 		}
+		if (func_check_break_recv != NULL && func_check_break_recv(*data))
+			return;
 		if ((func_filter_by_type_and_additional_data != NULL && func_filter_by_type_and_additional_data(*data, data + header_size - additional_size, id)) || *data != type)
 			continue;
 		int extra[3];
@@ -225,7 +226,8 @@ void myrecvfrom_field(enum PacketType type, bool **field, int h, int w, int addi
 		int number_grids = extra[2];
 		if (!start_grids[i0][j0])
 		{
-			//printf("%d get %d from %d\n", sockfd_id, *(data + header_size - additional_size), id);
+			if (additional_size > 0)
+				if (debug) printf("%d get %d from %d\n", sockfd_id, *(data + header_size - additional_size), id);
 			recv_grids += number_grids;
 			unzip_field(data + header_size, number_grids, field, h, w, i0, j0);
 			//printf("%2d  %d %d %d %d %d/%d  %d\n", sockfd_id, i0, j0, start_grids[i0][j0], number_grids, recv_grids, h * w, *(data + header_size));
